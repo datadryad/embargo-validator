@@ -1,16 +1,20 @@
 import requests
 from xml.etree import ElementTree
-
+from dateutil import parser
+from datetime import datetime
 DRYAD_BASE = 'http://datadryad.org'
 DRYAD_RESOURCE_BASE = DRYAD_BASE + '/resource'
 DRI_SUFFIX = '/DRI'
 DRI_XML_PREFIX = '{http://di.tamu.edu/DRI/1.0/}'
 METS_XML_PREFIX = '{http://www.loc.gov/METS/}'
 DIM_XML_PREFIX = '{http://www.dspace.org/xmlns/dspace/dim}'
+XLINK_XML_PREFIX = '{http://www.w3.org/TR/xlink/}'
 
+# XPaths for mets metadata
 DIM_PATH = './' + METS_XML_PREFIX + 'dmdSec/' + METS_XML_PREFIX + 'mdWrap/' + METS_XML_PREFIX + 'xmlData/' + DIM_XML_PREFIX + 'dim/'
 EMBARGO_PATH = DIM_PATH + DIM_XML_PREFIX + 'field[@mdschema="dc"][@element="date"][@qualifier="embargoedUntil"]'
 IDENTIFIER_PATH = DIM_PATH + DIM_XML_PREFIX + 'field[@mdschema="dc"][@element="identifier"]'
+FILE_PATH = './' + METS_XML_PREFIX + 'fileSec/' + METS_XML_PREFIX + 'fileGrp/' + METS_XML_PREFIX + 'file'
 
 # TODO: identify ourselves as the DryadEmbargoValidator
 
@@ -76,11 +80,13 @@ class DryadObject(object):
 
 class DataFile(DryadObject):
     # Files have mets but probably no DRI
+    def __init__(self,**kwargs):
+        DryadObject.__init__(self,**kwargs)
+        self.embargoed_until_dates = None
+        self.bitstream_links = None
     def read(self):
         self.load_mets()
         self.parse_mets()
-        self.embargoed_until_dates = None
-
     def read_embargoed_until_dates(self):
         if self.embargoed_until_dates is not None:
             return
@@ -91,6 +97,32 @@ class DataFile(DryadObject):
             self.embargoed_until_dates = [f.text for f in embargo_fields]
         else:
             self.embargoed_until_dates = []
+    def read_bitstream_links(self):
+        # Read the file links out of the mets if they exist
+        if self.bitstream_links is not None:
+            return
+        self.bitstream_links = []
+        file_elements = self.mets_tree.findall(FILE_PATH)
+        for el in file_elements:
+            # <mets:file CHECKSUMTYPE="MD5" GROUPID="group_file_128474" ID="file_128474" MIMETYPE="text/plain" SIZE="137110" CHECKSUM="093be9c10e510e1e1de55f0e2b664a13">
+            #   <mets:FLocat LOCTYPE="URL" xlink:title="Banding_data_AmNat53974.txt" xlink:label="dataset-file" xlink:type="locator" xlink:href="/bitstream/handle/10255/dryad.45529/Banding_data_AmNat53974.txt?sequence=1"/>
+            # </mets:file>
+            file_dict = {
+                'checksum_type': el.get('CHECKSUMTYPE'),
+                'checksum' : el.get('CHECKSUM'),
+                'mime_type': el.get('MIMETYPE'),
+                'size' : el.get('SIZE'),
+                'id' : el.get('ID'),
+                'urls': list()
+            }
+            for fel in el:
+                url_dict = {
+                    'title': fel.get(XLINK_XML_PREFIX + 'title'),
+                    'label': fel.get(XLINK_XML_PREFIX + 'label'),
+                    'href' : fel.get(XLINK_XML_PREFIX + 'href'),
+                }
+                file_dict['urls'].append(url_dict)
+            self.bitstream_links.append(file_dict)
 
 class DataPackage(DryadObject):
     def __init__(self,**kwargs):
@@ -123,6 +155,50 @@ class DataPackage(DryadObject):
             data_file.read_embargoed_until_dates()
             dates = data_file.embargoed_until_dates
             print "File %s has %d embargo dates: %s" % (data_file.doi, len(dates), (',').join(dates))
+    def print_bitstream_links(self):
+        for data_file in self.files:
+            data_file.read_bitstream_links()
+            for bitstream_link in data_file.bitstream_links:
+                for url_dict in bitstream_link['urls']:
+                    print "title: %s\tlabel: %s\thref: %s" % (url_dict['title'], url_dict['label'], url_dict['href'])
+    def check_embargo_links(self):
+        results = []
+        # Any file with an embargo should not have a link
+        now = datetime.now()
+        for data_file in self.files:
+            data_file.read_embargoed_until_dates()
+            data_file.read_bitstream_links()
+            result_dict = dict()
+            result_dict['file'] = data_file.doi
+            # Pick up here
+            # Does the file have an embargo date?
+            # if the file has an embargo date, it should not have a link
+            embargo_active_now = False
+            result_dict['embargo_dates'] = ','.join(data_file.embargoed_until_dates)
+            for embargo_date in data_file.embargoed_until_dates:
+                try:
+                    parsed_embargo_date = parser.parse(embargo_date)
+                    if parsed_embargo_date > now:
+                        embargo_active_now = True
+                        break
+                except Exception as e:
+                    print "Exception parsing embargo date: %s", e
+            result_dict['embargo_active'] = embargo_active_now
+            has_bitstream_links = len(data_file.bitstream_links) > 0
+            result_dict['has_bitstream_links'] = has_bitstream_links
+            result_dict['download_results'] = []
+            if embargo_active_now:
+                # Embargo is active, make sure no links are present
+                if has_bitstream_links:
+                    print "Found %d bitstream links for embargoed data file %s" % (len(data_file.bitstream_links), data_file.doi)
+                    # attempt head
+                    for bitstream_link in data_file.bitstream_links:
+                        for url_dict in bitstream_link['urls']:
+                            absolute_url = DRYAD_BASE + url_dict['href']
+                            r = requests.head(absolute_url)
+                            result_dict['download_results'].append({ 'url': absolute_url, 'status_code': r.status_code})
+            results.append(result_dict)
+        return results
 
 # 1. get metadata for the files in a data package
 # 2. get download links for the files in a data package
@@ -138,7 +214,8 @@ def main():
     for package_doi in package_dois:
         package = DataPackage(doi=package_doi)
         package.load_files()
-        package.print_embargo_dates()
+        results = package.check_embargo_links()
+        print results
 
 if __name__ == '__main__':
     main()
