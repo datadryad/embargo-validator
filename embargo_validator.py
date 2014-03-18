@@ -233,15 +233,32 @@ class SolrDocument(object):
         return embargoed_file_dois
 
 def main():
+    #  Simple - feed in package DOIs
     package_dois = [
         'doi:10.5061/dryad.s8g15',
         'doi:10.5061/dryad.ct40s'
     ]
-    for package_doi in package_dois:
-        package = DataPackage(doi=package_doi)
-        package.load_files()
-        results = package.check_embargo_links()
-        print results
+    if False:
+        for package_doi in package_dois:
+            package = DataPackage(doi=package_doi)
+            package.load_files()
+            results = package.check_embargo_links()
+            print results
+    solr = SolrDocument(SOLR_QUERY_URL)
+    solr.load_solr()
+    solr.parse_solr()
+    file_dois = solr.get_embargoed_file_dois()
+    print "According to solr, there are %d embargoed files" % len(file_dois)
+    for file_doi in file_dois:
+        # Leaving off here.  will this work?
+        print "Checking %s" % file_doi
+        data_file = DataFile(doi=file_doi)
+        data_file.load_dri()
+        data_file.parse_dri()
+
+
+
+
 
 if __name__ == '__main__':
     main()
