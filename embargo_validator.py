@@ -15,6 +15,8 @@ DIM_PATH = './' + METS_XML_PREFIX + 'dmdSec/' + METS_XML_PREFIX + 'mdWrap/' + ME
 EMBARGO_PATH = DIM_PATH + DIM_XML_PREFIX + 'field[@mdschema="dc"][@element="date"][@qualifier="embargoedUntil"]'
 IDENTIFIER_PATH = DIM_PATH + DIM_XML_PREFIX + 'field[@mdschema="dc"][@element="identifier"]'
 FILE_PATH = './' + METS_XML_PREFIX + 'fileSec/' + METS_XML_PREFIX + 'fileGrp/' + METS_XML_PREFIX + 'file'
+SOLR_QUERY_URL = DRYAD_BASE + '/solr/search/select/?q=dc.date.embargoedUntil_dt:%5BNOW%20TO%20NOW/DAY%2B10000DAY%5D&rows=1000000'
+
 
 # TODO: identify ourselves as the DryadEmbargoValidator
 
@@ -205,6 +207,30 @@ class DataPackage(DryadObject):
 # 3. get embargo status
 # 4. check if embargoed items can be downloaded
 # 5. report
+
+class SolrDocument(object):
+    def __init__(self, url=None):
+        self.url = url
+        self.solr_xml = None
+        self.solr_tree = None
+    def load_solr(self):
+        if self.solr_xml is not None:
+            return
+        r = requests.get(self.url)
+        self.solr_xml = r.text
+    def parse_solr(self):
+        if self.solr_tree is not None:
+            return
+        self.solr_tree = ElementTree.fromstring(self.solr_xml.encode('utf-8'))
+    def get_embargoed_file_dois(self):
+        # find all the file dois in the solr tree
+        # will include package dois.
+        dois = self.solr_tree.findall('./result/doc/arr[@name="dc.identifier"]/str')
+        # file dois have two slashes
+        embargoed_file_dois = [d.text for d in dois if d.text.count('/') >= 2]
+        # uniqify
+        embargoed_file_dois = list(set(embargoed_file_dois))
+        return embargoed_file_dois
 
 def main():
     package_dois = [
