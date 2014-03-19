@@ -342,6 +342,7 @@ def check_for_leaks(results):
 def main():
     check_solr_index()
     check_rss_feed()
+    print "Done"
 
 if __name__ == '__main__':
     main()
