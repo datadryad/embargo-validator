@@ -1,5 +1,5 @@
 dateutils==0.6.6
-python-dateutil==2.2
 requests==2.2.1
 unicodecsv==0.9.4
 wsgiref==0.1.2
+lxml==3.3.3
