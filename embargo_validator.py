@@ -280,7 +280,7 @@ def check_package(package_doi):
 
 
 # Use of this query assumes that the solr index is up-to-date with embargoedUntil metadata
-SOLR_QUERY_URL = DRYAD_BASE + '/solr/search/select/?q=dc.date.embargoedUntil_dt:%5BNOW%20TO%20NOW/DAY%2B10000DAY%5D&rows=1000000'
+SOLR_QUERY_URL = DRYAD_BASE + '/solr/search/select/?q=dc.date.embargoedUntil_dt:%5BNOW%20TO%20NOW/DAY%2B10000DAY%5D&rows=1000000&fl=dc.identifier'
 
 def check_solr_index():
     solr = SolrDocument(SOLR_QUERY_URL)
