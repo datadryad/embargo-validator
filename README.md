@@ -15,11 +15,8 @@ The script produces CSV files containing reports of the checks.  For every Data 
 | file                    | The Data File's DOI                         |
 |-------------------------|---------------------------------------------|
 | embargo\_dates          | Any embargoedUntil dates found for the file |
-|-------------------------|---------------------------------------------|
 | embargo\_active         | True if any dates are in the future         |
-|-------------------------|---------------------------------------------|
 | has\_bitstream\_links   | True if any files have download links       |
-|-------------------------|---------------------------------------------|
 | download\_results       | The results of download attempts            |
 
 ## Assumptions
