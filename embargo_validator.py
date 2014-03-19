@@ -14,6 +14,7 @@ DRI_XML_PREFIX = '{http://di.tamu.edu/DRI/1.0/}'
 METS_XML_PREFIX = '{http://www.loc.gov/METS/}'
 DIM_XML_PREFIX = '{http://www.dspace.org/xmlns/dspace/dim}'
 XLINK_XML_PREFIX = '{http://www.w3.org/TR/xlink/}'
+ATOM_XML_PREFIX = '{http://www.w3.org/2005/Atom}'
 
 # XPaths for mets metadata
 DIM_PATH = './' + METS_XML_PREFIX + 'dmdSec/' + METS_XML_PREFIX + 'mdWrap/' + METS_XML_PREFIX + 'xmlData/' + DIM_XML_PREFIX + 'dim/'
@@ -210,7 +211,7 @@ class DataPackage(DryadObject):
                     print "title: %s\tlabel: %s\thref: %s" % (url_dict['title'], url_dict['label'], url_dict['href'])
     def check_embargo_links(self):
         now = datetime.now()
-        results = [f.check_embargo_links(now) for f in self.files]
+        results = [f.check_embargo_link(now) for f in self.files]
         return results
 
 # 1. get metadata for the files in a data package
@@ -219,34 +220,50 @@ class DataPackage(DryadObject):
 # 4. check if embargoed items can be downloaded
 # 5. report
 
-class SolrDocument(object):
+class DryadXMLDocument(object):
     def __init__(self, url=None):
         self.url = url
-        self.solr_xml = None
-        self.solr_tree = None
+        self.xml = None
+        self.tree= None
     def read(self):
-        self.load_solr()
-        self.parse_solr()
-    def load_solr(self):
-        if self.solr_xml is not None:
+        self.load()
+        self.parse()
+    def load(self):
+        if self.xml is not None:
             return
         r = requests.get(self.url)
-        self.solr_xml = r.text
-    def parse_solr(self):
-        if self.solr_tree is not None:
+        self.xml = r.text
+    def parse(self):
+        if self.tree is not None:
             return
-        self.solr_tree = ElementTree.fromstring(self.solr_xml.encode('utf-8'))
+        self.tree= ElementTree.fromstring(self.xml.encode('utf-8'))
+
+class SolrDocument(DryadXMLDocument):
     def get_file_dois(self):
         self.read()
         # find all the file dois in the solr tree
         # will include package dois.
-        dois = self.solr_tree.findall('./result/doc/arr[@name="dc.identifier"]/str')
+        dois = self.tree.findall('./result/doc/arr[@name="dc.identifier"]/str')
         # file dois have two slashes
         embargoed_file_dois = [d.text for d in dois if d.text.count('/') >= 2]
         # uniqify
         embargoed_file_dois = list(set(embargoed_file_dois))
         return embargoed_file_dois
 
+class DryadRSSFeed(DryadXMLDocument):
+    def get_package_dois(self):
+        self.read()
+        # DOIs are buried in <id> tags
+        # find all the file dois in the solr tree
+        # will include package dois.
+        resource_ids = self.tree.findall('./' + ATOM_XML_PREFIX + 'entry/' + ATOM_XML_PREFIX + 'id')
+        package_dois = []
+        for resource_id in resource_ids:
+            # get everything after 'resource/'
+            doi = resource_id.text.split('resource/')[-1]
+            package_dois.append(doi)
+        package_dois = list(set(package_dois))
+        return package_dois
 
 def check_packages_example():
     package_dois = [
@@ -254,13 +271,14 @@ def check_packages_example():
         'doi:10.5061/dryad.ct40s'
     ]
     for package_doi in package_dois:
-        check_package(package_doi)
+        package_check_results = check_package(package_doi)
+        print package_check_results
 
 def check_package(package_doi):
     package = DataPackage(doi=package_doi)
     package.load_files()
     results = package.check_embargo_links()
-    print results
+    return results
 
 
 # Use of this query assumes that the solr index is up-to-date with embargoedUntil metadata
@@ -285,14 +303,44 @@ def check_solr_index():
             # Might be a Treebase URL
             print "Exception checking file doi %s, skipping: %s" % (file_doi, e)
             sleep(1)
-    with open('embargo_check_report.csv', 'wb') as f:
+    write_embargo_check_csv('embargo_check_solr_index.csv',results)
+    leaks = check_for_leaks(results)
+    if len(leaks) > 0:
+        print "Embargo leak detected in solr indexed data"
+        write_embargo_check_csv('embargo_leaks_solr_index.csv', leaks)
+
+RECENTLY_PUBLISHED_RSS_FEED_URL = DRYAD_BASE + '/feed/atom_1.0/10255/3'
+def check_rss_feed():
+    rss_feed = DryadRSSFeed(url=RECENTLY_PUBLISHED_RSS_FEED_URL)
+    data_package_dois = rss_feed.get_package_dois()
+    print "There are %d recently published data packages" % len(data_package_dois)
+    results = []
+    for doi in data_package_dois:
+        results = results + check_package(doi)
+    write_embargo_check_csv('embargo_check_rss_feed.csv', results)
+    leaks = check_for_leaks(results)
+    if len(leaks) > 0:
+        print "Embargo leak detected in recently published data"
+        write_embargo_check_csv('embargo_leaks_rss_feed.csv', leaks)
+
+
+def write_embargo_check_csv(filename, results):
+    with open(filename, 'wb') as f:
         headers = ['file','embargo_dates','embargo_active','has_bitstream_links','download_results']
         writer = unicodecsv.DictWriter(f,headers)
         writer.writeheader()
         writer.writerows(results)
 
+def check_for_leaks(results):
+    leaks = []
+    for result in results:
+        if result['embargo_active'] is True and result['has_bitstream_links'] is True:
+            leaks.append(result)
+    return leaks
+
 def main():
     check_solr_index()
+    check_rss_feed()
 
 if __name__ == '__main__':
     main()
