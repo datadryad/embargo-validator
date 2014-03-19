@@ -34,8 +34,3 @@ RSS_LEAKS_FILE="${VALIDATOR_DIR}/embargo_leaks_rss_feed.csv"
 if [ -f "$RSS_LEAKS_FILE" ]; then
     mail -s "Embargo issue detected in recently published data" "$ADMIN_EMAIL" < $RSS_LEAKS_FILE > /dev/null
 fi
-
-# Cleanup
-if [ -f "$VALIDATOR_DIR"/*.csv ]; then
-	rm "$VALIDATOR_DIR"/*.csv
-fi
