@@ -1,6 +1,4 @@
-from csv import DictWriter
 from time import sleep
-from pip.vendor.distlib.util import CSVWriter
 import requests
 from xml.etree import ElementTree
 from dateutil import parser
