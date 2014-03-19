@@ -22,8 +22,8 @@ EMBARGO_PATH = DIM_PATH + DIM_XML_PREFIX + 'field[@mdschema="dc"][@element="date
 IDENTIFIER_PATH = DIM_PATH + DIM_XML_PREFIX + 'field[@mdschema="dc"][@element="identifier"]'
 FILE_PATH = './' + METS_XML_PREFIX + 'fileSec/' + METS_XML_PREFIX + 'fileGrp/' + METS_XML_PREFIX + 'file'
 
-# TODO: identify ourselves as the DryadEmbargoValidator
-
+s = requests.Session()
+s.headers = {'User-Agent' : 'DryadEmbargoValidator'}
 class DryadObject(object):
     def __init__(self,doi=None,mets_url_relative=None):
         self.doi = doi
@@ -42,12 +42,12 @@ class DryadObject(object):
         if self.html is not None:
             return
         # For download links
-        r = requests.get(self.html_url())
+        r = s.get(self.html_url())
         self.html = r.text
     def load_dri(self):
         if self.dri_xml is not None:
             return
-        r = requests.get(self.dri_url())
+        r = s.get(self.dri_url())
         self.dri_xml = r.text
     def parse_dri(self):
         if self.dri_tree is not None:
@@ -66,7 +66,7 @@ class DryadObject(object):
     def load_mets(self):
         if self.mets_xml is not None:
             return
-        r = requests.get(DRYAD_BASE + self.mets_url_relative)
+        r = s.get(DRYAD_BASE + self.mets_url_relative)
         self.mets_xml = r.text
     def parse_mets(self):
         if self.mets_tree is not None:
@@ -168,7 +168,7 @@ class DataFile(DryadObject):
                 for bitstream_link in self.bitstream_links:
                     for url_dict in bitstream_link['urls']:
                         absolute_url = DRYAD_BASE + url_dict['href']
-                        r = requests.head(absolute_url)
+                        r = s.head(absolute_url)
                         result_dict['download_results'].append({ 'url': absolute_url, 'status_code': r.status_code})
         return result_dict
 
@@ -231,7 +231,7 @@ class DryadXMLDocument(object):
     def load(self):
         if self.xml is not None:
             return
-        r = requests.get(self.url)
+        r = s.get(self.url)
         self.xml = r.text
     def parse(self):
         if self.tree is not None:
