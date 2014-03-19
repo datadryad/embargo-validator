@@ -2,7 +2,8 @@
 
 from time import sleep
 import requests
-from xml.etree import ElementTree
+# ElementTree in python 2.6 doesn't support xpath, so we use lxml.etree instead
+from lxml import etree as ElementTree
 from dateutil import parser
 from datetime import datetime
 import unicodecsv
