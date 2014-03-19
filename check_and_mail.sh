@@ -2,8 +2,7 @@
 
 VALIDATOR_DIR=`dirname $0`
 
-# ADMIN_EMAIL="admin@datadryad.org"
-ADMIN_EMAIL="dan.leehr@nescent.org"
+ADMIN_EMAIL="admin@datadryad.org"
 VIRTUALENV_PATH="/home/dryad/embargo_validator/env"
 
 OUTPUT_DIR=`mktemp -d /tmp/embargo_validator_XXXXX`
