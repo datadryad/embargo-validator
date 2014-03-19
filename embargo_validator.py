@@ -309,6 +309,8 @@ def check_solr_index():
     if len(leaks) > 0:
         print "Embargo leak detected in solr indexed data"
         write_embargo_check_csv('embargo_leaks_solr_index.csv', leaks)
+    else:
+        print "No leaks found in solr indexed data"
 
 RECENTLY_PUBLISHED_RSS_FEED_URL = DRYAD_BASE + '/feed/atom_1.0/10255/3'
 def check_rss_feed():
@@ -321,8 +323,11 @@ def check_rss_feed():
     write_embargo_check_csv('embargo_check_rss_feed.csv', results)
     leaks = check_for_leaks(results)
     if len(leaks) > 0:
-        print "Embargo leak detected in recently published data"
+        print "Embargo leak detected in recently published data!"
         write_embargo_check_csv('embargo_leaks_rss_feed.csv', leaks)
+    else:
+        print "No leaks found in recently published data"
+
 
 
 def write_embargo_check_csv(filename, results):
