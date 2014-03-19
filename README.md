@@ -12,8 +12,9 @@ The script examines metadata for Dryad Data Files.  It fetches all metadata valu
 The script produces CSV files containing reports of the checks.  For every Data File examined, the report contains:
 
 
-| file                    | The Data File's DOI                         |
+| Column name             | Description                                 |
 |-------------------------|---------------------------------------------|
+| file                    | The Data File's DOI                         |
 | embargo\_dates          | Any embargoedUntil dates found for the file |
 | embargo\_active         | True if any dates are in the future         |
 | has\_bitstream\_links   | True if any files have download links       |
