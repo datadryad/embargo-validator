@@ -285,7 +285,7 @@ SOLR_QUERY_URL = DRYAD_BASE + '/solr/search/select/?q=dc.date.embargoedUntil_dt:
 def check_solr_index():
     solr = SolrDocument(SOLR_QUERY_URL)
     file_dois = solr.get_file_dois()
-    print "According to solr, there are %d items with an embargoedUntil date in the future" % len(file_dois)
+    print "Checking %d items in solr with an embargoedUntil date in the future..." % len(file_dois)
     now = datetime.now()
     results = []
     while len(file_dois) > 0:
@@ -311,7 +311,7 @@ RECENTLY_PUBLISHED_RSS_FEED_URL = DRYAD_BASE + '/feed/atom_1.0/10255/3'
 def check_rss_feed():
     rss_feed = DryadRSSFeed(url=RECENTLY_PUBLISHED_RSS_FEED_URL)
     data_package_dois = rss_feed.get_package_dois()
-    print "There are %d recently published data packages" % len(data_package_dois)
+    print "Checking files in %d recently published data packages..." % len(data_package_dois)
     results = []
     for doi in data_package_dois:
         results = results + check_package(doi)
