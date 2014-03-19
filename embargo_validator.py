@@ -1,7 +1,12 @@
+from csv import DictWriter
+from time import sleep
+from pip.vendor.distlib.util import CSVWriter
 import requests
 from xml.etree import ElementTree
 from dateutil import parser
 from datetime import datetime
+import unicodecsv
+
 DRYAD_BASE = 'http://datadryad.org'
 DRYAD_RESOURCE_BASE = DRYAD_BASE + '/resource'
 DRI_SUFFIX = '/DRI'
@@ -266,10 +271,26 @@ def check_solr_index():
     file_dois = solr.get_file_dois()
     print "According to solr, there are %d items with an embargoedUntil date in the future" % len(file_dois)
     now = datetime.now()
-    for file_doi in file_dois:
+    results = []
+    while len(file_dois) > 0:
+        file_doi = file_dois.pop(0)
         data_file = DataFile(doi=file_doi)
-        embargo_link_check = data_file.check_embargo_link(now)
-        print embargo_link_check
+        try:
+            embargo_check_result = data_file.check_embargo_link(now)
+            results.append(embargo_check_result)
+            num_checked = len(results)
+            if num_checked % 25 == 0:
+                print "Checked %d files" % num_checked
+        except Exception as e:
+            # Might be a Treebase URL
+            print "Exception checking file doi %s, skipping: %s" % (file_doi, e)
+            sleep(1)
+    with open('embargo_check_report.csv', 'wb') as f:
+        headers = ['file','embargo_dates','embargo_active','has_bitstream_links','download_results']
+        writer = unicodecsv.DictWriter(f,headers)
+        writer.writeheader()
+        writer.writerows(results)
+
 def main():
     check_solr_index()
 
