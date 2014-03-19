@@ -15,8 +15,6 @@ DIM_PATH = './' + METS_XML_PREFIX + 'dmdSec/' + METS_XML_PREFIX + 'mdWrap/' + ME
 EMBARGO_PATH = DIM_PATH + DIM_XML_PREFIX + 'field[@mdschema="dc"][@element="date"][@qualifier="embargoedUntil"]'
 IDENTIFIER_PATH = DIM_PATH + DIM_XML_PREFIX + 'field[@mdschema="dc"][@element="identifier"]'
 FILE_PATH = './' + METS_XML_PREFIX + 'fileSec/' + METS_XML_PREFIX + 'fileGrp/' + METS_XML_PREFIX + 'file'
-SOLR_QUERY_URL = DRYAD_BASE + '/solr/search/select/?q=dc.date.embargoedUntil_dt:%5BNOW%20TO%20NOW/DAY%2B10000DAY%5D&rows=1000000'
-
 
 # TODO: identify ourselves as the DryadEmbargoValidator
 
@@ -32,6 +30,7 @@ class DryadObject(object):
         # only valid if doi
         return DRYAD_RESOURCE_BASE + '/' +  self.doi
     def dri_url(self):
+        # Only valid if doi present
         return DRYAD_RESOURCE_BASE + '/' + self.doi + DRI_SUFFIX
     def load_html(self):
         if self.html is not None:
@@ -87,8 +86,17 @@ class DataFile(DryadObject):
         self.embargoed_until_dates = None
         self.bitstream_links = None
     def read(self):
-        self.load_mets()
-        self.parse_mets()
+        # goal is to read METS metadata.  Need mets_relative_url to do that
+        if self.mets_url_relative is None and self.doi is not None:
+            # Have a DOI, can get mets via DRI
+            self.load_dri()
+            self.parse_dri()
+            self.extract_mets_url()
+        if self.mets_url_relative is not None:
+            self.load_mets()
+            self.parse_mets()
+        else:
+            raise Exception("Error, no METS url and no DOI. can't read data for DataFile")
     def read_embargoed_until_dates(self):
         if self.embargoed_until_dates is not None:
             return
@@ -125,6 +133,38 @@ class DataFile(DryadObject):
                 }
                 file_dict['urls'].append(url_dict)
             self.bitstream_links.append(file_dict)
+    def check_embargo_link(self, current_date):
+        self.read()
+        self.read_embargoed_until_dates()
+        self.read_bitstream_links()
+        result_dict = dict()
+        result_dict['file'] = self.doi
+        embargo_active_now = False
+        result_dict['embargo_dates'] = ','.join(self.embargoed_until_dates)
+        for embargo_date in self.embargoed_until_dates:
+            try:
+                parsed_embargo_date = parser.parse(embargo_date)
+                if parsed_embargo_date > current_date:
+                    embargo_active_now = True
+                    break
+            except Exception as e:
+                print "Exception parsing embargo date: %s", e
+        result_dict['embargo_active'] = embargo_active_now
+        has_bitstream_links = len(self.bitstream_links) > 0
+        result_dict['has_bitstream_links'] = has_bitstream_links
+        result_dict['download_results'] = []
+        if embargo_active_now:
+            # Embargo is active, make sure no links are present
+            if has_bitstream_links:
+                # links are present, they shouldn't be.  Make sure they're not downloadable
+                print "Found %d bitstream links for embargoed data file %s" % (len(self.bitstream_links), self.doi)
+                # attempt head
+                for bitstream_link in self.bitstream_links:
+                    for url_dict in bitstream_link['urls']:
+                        absolute_url = DRYAD_BASE + url_dict['href']
+                        r = requests.head(absolute_url)
+                        result_dict['download_results'].append({ 'url': absolute_url, 'status_code': r.status_code})
+        return result_dict
 
 class DataPackage(DryadObject):
     def __init__(self,**kwargs):
@@ -164,42 +204,8 @@ class DataPackage(DryadObject):
                 for url_dict in bitstream_link['urls']:
                     print "title: %s\tlabel: %s\thref: %s" % (url_dict['title'], url_dict['label'], url_dict['href'])
     def check_embargo_links(self):
-        results = []
-        # Any file with an embargo should not have a link
         now = datetime.now()
-        for data_file in self.files:
-            data_file.read_embargoed_until_dates()
-            data_file.read_bitstream_links()
-            result_dict = dict()
-            result_dict['file'] = data_file.doi
-            # Pick up here
-            # Does the file have an embargo date?
-            # if the file has an embargo date, it should not have a link
-            embargo_active_now = False
-            result_dict['embargo_dates'] = ','.join(data_file.embargoed_until_dates)
-            for embargo_date in data_file.embargoed_until_dates:
-                try:
-                    parsed_embargo_date = parser.parse(embargo_date)
-                    if parsed_embargo_date > now:
-                        embargo_active_now = True
-                        break
-                except Exception as e:
-                    print "Exception parsing embargo date: %s", e
-            result_dict['embargo_active'] = embargo_active_now
-            has_bitstream_links = len(data_file.bitstream_links) > 0
-            result_dict['has_bitstream_links'] = has_bitstream_links
-            result_dict['download_results'] = []
-            if embargo_active_now:
-                # Embargo is active, make sure no links are present
-                if has_bitstream_links:
-                    print "Found %d bitstream links for embargoed data file %s" % (len(data_file.bitstream_links), data_file.doi)
-                    # attempt head
-                    for bitstream_link in data_file.bitstream_links:
-                        for url_dict in bitstream_link['urls']:
-                            absolute_url = DRYAD_BASE + url_dict['href']
-                            r = requests.head(absolute_url)
-                            result_dict['download_results'].append({ 'url': absolute_url, 'status_code': r.status_code})
-            results.append(result_dict)
+        results = [f.check_embargo_links(now) for f in self.files]
         return results
 
 # 1. get metadata for the files in a data package
@@ -213,6 +219,9 @@ class SolrDocument(object):
         self.url = url
         self.solr_xml = None
         self.solr_tree = None
+    def read(self):
+        self.load_solr()
+        self.parse_solr()
     def load_solr(self):
         if self.solr_xml is not None:
             return
@@ -222,7 +231,8 @@ class SolrDocument(object):
         if self.solr_tree is not None:
             return
         self.solr_tree = ElementTree.fromstring(self.solr_xml.encode('utf-8'))
-    def get_embargoed_file_dois(self):
+    def get_file_dois(self):
+        self.read()
         # find all the file dois in the solr tree
         # will include package dois.
         dois = self.solr_tree.findall('./result/doc/arr[@name="dc.identifier"]/str')
@@ -232,33 +242,36 @@ class SolrDocument(object):
         embargoed_file_dois = list(set(embargoed_file_dois))
         return embargoed_file_dois
 
-def main():
-    #  Simple - feed in package DOIs
+
+def check_packages_example():
     package_dois = [
         'doi:10.5061/dryad.s8g15',
         'doi:10.5061/dryad.ct40s'
     ]
-    if False:
-        for package_doi in package_dois:
-            package = DataPackage(doi=package_doi)
-            package.load_files()
-            results = package.check_embargo_links()
-            print results
+    for package_doi in package_dois:
+        check_package(package_doi)
+
+def check_package(package_doi):
+    package = DataPackage(doi=package_doi)
+    package.load_files()
+    results = package.check_embargo_links()
+    print results
+
+
+# Use of this query assumes that the solr index is up-to-date with embargoedUntil metadata
+SOLR_QUERY_URL = DRYAD_BASE + '/solr/search/select/?q=dc.date.embargoedUntil_dt:%5BNOW%20TO%20NOW/DAY%2B10000DAY%5D&rows=1000000'
+
+def check_solr_index():
     solr = SolrDocument(SOLR_QUERY_URL)
-    solr.load_solr()
-    solr.parse_solr()
-    file_dois = solr.get_embargoed_file_dois()
-    print "According to solr, there are %d embargoed files" % len(file_dois)
+    file_dois = solr.get_file_dois()
+    print "According to solr, there are %d items with an embargoedUntil date in the future" % len(file_dois)
+    now = datetime.now()
     for file_doi in file_dois:
-        # Leaving off here.  will this work?
-        print "Checking %s" % file_doi
         data_file = DataFile(doi=file_doi)
-        data_file.load_dri()
-        data_file.parse_dri()
-
-
-
-
+        embargo_link_check = data_file.check_embargo_link(now)
+        print embargo_link_check
+def main():
+    check_solr_index()
 
 if __name__ == '__main__':
     main()
