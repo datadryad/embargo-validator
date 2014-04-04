@@ -1,4 +1,4 @@
-embargo_validator
+embargo-validator
 =================
 
 Python script to check that embargoes are enforced on Dryad.
