@@ -1,5 +1,5 @@
 #!/bin/bash
-
+MSG=""
 VALIDATOR_DIR=`dirname $0`
 
 ADMIN_EMAIL="admin@datadryad.org"
@@ -27,10 +27,19 @@ SOLR_LEAKS_FILE="${VALIDATOR_DIR}/embargo_leaks_solr_index.csv"
 
 if [ -f "$SOLR_LEAKS_FILE" ]; then
     mail -s "Embargo issue detected in solr-indexed data" "$ADMIN_EMAIL" < $SOLR_LEAKS_FILE > /dev/null
+    MSG="Embargo issue detected in solr-indexed data. "
 fi
 
 RSS_LEAKS_FILE="${VALIDATOR_DIR}/embargo_leaks_rss_feed.csv"
 
 if [ -f "$RSS_LEAKS_FILE" ]; then
     mail -s "Embargo issue detected in recently published data" "$ADMIN_EMAIL" < $RSS_LEAKS_FILE > /dev/null
+    MSG=$MSG"Embargo issue detected in recently published data."
 fi
+
+if [ -z "$MSG" ]; then
+   echo "Embargo Validator detected no anomalies."
+   exit 0
+fi
+echo $MSG
+exit 2
