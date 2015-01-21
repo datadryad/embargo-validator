@@ -93,17 +93,22 @@ class DataFile(DryadObject):
         self.embargoed_until_dates = None
         self.bitstream_links = None
     def read(self):
-        # goal is to read METS metadata.  Need mets_relative_url to do that
+        # Read the METS metadata, as this contains download links and such
+        # Ultimately we need the METS URL (mets_url_relative), which we may have when the object
+        # is initialized. If we have a DOI (which is the case for checking SOLR items)
+        # We can attempt to read the DRI metadata from Dryad for that DOI and extract
+        # the METS URLfrom there.
         if self.mets_url_relative is None and self.doi is not None:
-            # Have a DOI, can get mets via DRI
+            # Have the DOI, but not the METS url yet, get the DRI and parse it
             self.load_dri()
             self.parse_dri()
             self.extract_mets_url()
+        # Now we need to have a METS url either way
         if self.mets_url_relative is not None:
             self.load_mets()
             self.parse_mets()
         else:
-            raise Exception("Error, no METS url and no DOI. can't read data for DataFile")
+            raise Exception("Unable to locate METS metadata for data file. Couldn't determine METS url from DRI. Make sure the DRI metadata at " + self.dri_url() + " can be read and contains a METS url in document/body/div/referenceSet/reference")
     def read_embargoed_until_dates(self):
         if self.embargoed_until_dates is not None:
             return
@@ -155,7 +160,7 @@ class DataFile(DryadObject):
                     embargo_active_now = True
                     break
             except Exception as e:
-                print "Exception parsing embargo date: %s", e
+                print "Unable to parse embargo date: %s", e
         result_dict['embargo_active'] = embargo_active_now
         has_bitstream_links = len(self.bitstream_links) > 0
         result_dict['has_bitstream_links'] = has_bitstream_links
@@ -164,7 +169,7 @@ class DataFile(DryadObject):
             # Embargo is active, make sure no links are present
             if has_bitstream_links:
                 # links are present, they shouldn't be.  Make sure they're not downloadable
-                print "Found %d bitstream links for embargoed data file %s" % (len(self.bitstream_links), self.doi)
+                print "ALERT: Found %d bitstream links for embargoed data file %s" % (len(self.bitstream_links), self.doi)
                 # attempt head
                 for bitstream_link in self.bitstream_links:
                     for url_dict in bitstream_link['urls']:
@@ -288,6 +293,7 @@ SOLR_QUERY_URL = DRYAD_BASE + '/solr/search/select/?q=dc.date.embargoedUntil_dt:
 def check_solr_index():
     solr = SolrDocument(SOLR_QUERY_URL)
     file_dois = solr.get_file_dois()
+    print " 1/2 CHECKING SOLR ".center(60, '=')
     print "Checking %d items in solr with an embargoedUntil date in the future..." % len(file_dois)
     now = datetime.now()
     results = []
@@ -299,11 +305,13 @@ def check_solr_index():
             results.append(embargo_check_result)
             num_checked = len(results)
             if num_checked % 25 == 0:
-                print "Checked %d files" % num_checked
+                print "Checked %d files indexed in SOLR..." % num_checked
         except Exception as e:
             # Might be a Treebase URL
             print "Exception checking file doi %s, skipping: %s" % (file_doi, e)
             sleep(1)
+    print "Checked %d files indexed in SOLR." % len(results)
+
     write_embargo_check_csv('embargo_check_solr_index.csv',results)
     leaks = check_for_leaks(results)
     if len(leaks) > 0:
@@ -311,11 +319,14 @@ def check_solr_index():
         write_embargo_check_csv('embargo_leaks_solr_index.csv', leaks)
     else:
         print "No leaks found in solr indexed data"
+    print ""
 
 RECENTLY_PUBLISHED_RSS_FEED_URL = DRYAD_BASE + '/feed/atom_1.0/10255/3'
 def check_rss_feed():
     rss_feed = DryadRSSFeed(url=RECENTLY_PUBLISHED_RSS_FEED_URL)
     data_package_dois = rss_feed.get_package_dois()
+    print ""
+    print " 2/2 CHECKING RSS ".center(60, '=')
     print "Checking files in %d recently published data packages..." % len(data_package_dois)
     results = []
     for doi in data_package_dois:
@@ -327,8 +338,7 @@ def check_rss_feed():
         write_embargo_check_csv('embargo_leaks_rss_feed.csv', leaks)
     else:
         print "No leaks found in recently published data"
-
-
+    print ""
 
 def write_embargo_check_csv(filename, results):
     with open(filename, 'wb') as f:
